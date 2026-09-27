@@ -11,12 +11,14 @@ import {
   Send,
   Wrench,
   CalendarCheck,
+  LoaderCircle,
 } from "lucide-react";
 import {
   ANLIEGEN,
   KONTAKTWEGE,
-  auswerten,
+  auswertenMitKi,
   type AnliegenId,
+  type Quelle,
   type Auswertung,
   type Eingaben,
 } from "@/lib/anfrage";
@@ -43,9 +45,13 @@ export function AnfrageAssistent() {
   const [plz, setPlz] = useState("");
   const [kontaktweg, setKontaktweg] = useState<Eingaben["kontaktweg"]>("Rückruf");
   const [notiz, setNotiz] = useState("");
-  const [ergebnis, setErgebnis] = useState<{ eingaben: Eingaben; auswertung: Auswertung } | null>(
-    null,
-  );
+  const [website, setWebsite] = useState(""); // Falle für Bots, für Menschen unsichtbar
+  const [laedt, setLaedt] = useState(false);
+  const [ergebnis, setErgebnis] = useState<{
+    eingaben: Eingaben;
+    auswertung: Auswertung;
+    quelle: Quelle;
+  } | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
   const aktuell = ANLIEGEN.find((a) => a.id === anliegen);
@@ -79,11 +85,14 @@ export function AnfrageAssistent() {
     setSchritt((s) => s + 1);
   }
 
-  function absenden(e: React.FormEvent) {
+  async function absenden(e: React.FormEvent) {
     e.preventDefault();
-    if (!anliegen) return;
+    if (!anliegen || laedt) return;
     const eingaben: Eingaben = { anliegen, antworten, vorname, plz, kontaktweg, notiz };
-    setErgebnis({ eingaben, auswertung: auswerten(eingaben) });
+    setLaedt(true);
+    const { auswertung, quelle } = await auswertenMitKi(eingaben, website);
+    setLaedt(false);
+    setErgebnis({ eingaben, auswertung, quelle });
     boxRef.current?.scrollIntoView({ block: "start" });
   }
 
@@ -226,6 +235,17 @@ export function AnfrageAssistent() {
             />
           </label>
 
+          <input
+            type="text"
+            name="website"
+            tabIndex={-1}
+            autoComplete="off"
+            aria-hidden
+            value={website}
+            onChange={(e) => setWebsite(e.target.value)}
+            className="absolute -left-[9999px] h-0 w-0 opacity-0"
+          />
+
           <p className="rounded-lg bg-water-soft px-4 py-3 text-sm text-ink-soft">
             <strong className="text-ink">Demo:</strong> Bitte keine echten Daten eingeben. In der
             fertigen Version stünde hier ein Feld für Telefon oder E-Mail.
@@ -235,9 +255,18 @@ export function AnfrageAssistent() {
             <ZurueckKnopf onClick={() => setSchritt((s) => s - 1)} />
             <button
               type="submit"
-              className="inline-flex items-center gap-2 rounded-lg bg-copper px-5 py-3 font-semibold text-white transition hover:bg-copper-dark active:scale-[0.98]"
+              disabled={laedt}
+              className="inline-flex items-center gap-2 rounded-lg bg-copper px-5 py-3 font-semibold text-white transition hover:bg-copper-dark active:scale-[0.98] disabled:cursor-wait disabled:opacity-80"
             >
-              Anfrage senden <Send className="size-4" aria-hidden />
+              {laedt ? (
+                <>
+                  Wird ausgewertet <LoaderCircle className="size-4 animate-spin" aria-hidden />
+                </>
+              ) : (
+                <>
+                  Anfrage senden <Send className="size-4" aria-hidden />
+                </>
+              )}
             </button>
           </div>
         </form>
@@ -301,10 +330,12 @@ function ZurueckKnopf({ onClick }: { onClick: () => void }) {
 function Ergebnis({
   eingaben,
   auswertung,
+  quelle,
   onNeu,
 }: {
   eingaben: Eingaben;
   auswertung: Auswertung;
+  quelle: Quelle;
   onNeu: () => void;
 }) {
   const anliegen = ANLIEGEN.find((a) => a.id === eingaben.anliegen)!;
@@ -333,11 +364,18 @@ function Ergebnis({
             Rechts sehen Sie, wie die Anfrage beim Betrieb ankommt: sortiert, zusammengefasst und
             mit Dringlichkeit. Der Betrieb muss nicht mehr nachfragen, was eigentlich los ist.
           </p>
-          <p className="mt-3 text-ink-soft">
-            In dieser Demo erstellt die Seite die Nachricht noch selbst. In der fertigen Version
-            übernimmt das ein n8n-Workflow mit KI-Auswertung und schickt sie per Telegram oder
-            E-Mail.
-          </p>
+          {quelle === "ki" ? (
+            <p className="mt-3 text-ink-soft">
+              Diese Auswertung kam gerade live von einem n8n-Workflow: Er hat Ihre Angaben an eine
+              KI (Google Gemini) gegeben und das Ergebnis zurückgeschickt. Beim echten Betrieb
+              ginge die Nachricht zusätzlich per Telegram oder E-Mail raus.
+            </p>
+          ) : (
+            <p className="mt-3 text-ink-soft">
+              Die KI-Auswertung war gerade nicht erreichbar, deshalb hat die Seite die Nachricht
+              selbst erstellt. Normalerweise übernimmt das ein n8n-Workflow mit KI.
+            </p>
+          )}
         </div>
 
         <button
@@ -362,7 +400,9 @@ function Ergebnis({
               </span>
               <span>
                 <span className="block text-sm font-semibold leading-tight">Kessler Anfragen</span>
-                <span className="block text-xs text-white/75">Bot</span>
+                <span className="block text-xs text-white/75">
+                  {quelle === "ki" ? "Bot · ausgewertet mit KI" : "Bot"}
+                </span>
               </span>
             </div>
             <div className="p-3">

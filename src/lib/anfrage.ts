@@ -140,6 +140,50 @@ export type Auswertung = {
   naechsterSchritt: string;
 };
 
+// n8n-Workflow "03 Demo - Kessler Anfrage-Assistent" (Vorlage in n8n/kessler-anfrage-workflow.json)
+const WEBHOOK = "https://benjaminmossier.app.n8n.cloud/webhook/kessler-anfrage";
+
+export type Quelle = "ki" | "lokal";
+
+// Fragt n8n + KI. Klappt das nicht (Limit erreicht, Fehler, zu langsam), rechnet die Seite selbst.
+export async function auswertenMitKi(
+  e: Eingaben,
+  website: string,
+): Promise<{ auswertung: Auswertung; quelle: Quelle }> {
+  const anliegen = ANLIEGEN.find((x) => x.id === e.anliegen)!;
+  const antworten = Object.fromEntries(anliegen.fragen.map((f) => [f.text, e.antworten[f.id]]));
+  try {
+    const res = await fetch(WEBHOOK, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...e, antworten, website }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const d = await res.json();
+    if (res.ok && d.ki && d.stufe in STUFEN_TEXT) {
+      return {
+        quelle: "ki",
+        auswertung: {
+          stufe: d.stufe,
+          stufeText: d.stufeText || STUFEN_TEXT[d.stufe as Stufe],
+          zusammenfassung: d.zusammenfassung,
+          naechsterSchritt: d.naechsterSchritt,
+        },
+      };
+    }
+  } catch {
+    // Netzwerkfehler oder Zeitüberschreitung: unten lokal auswerten
+  }
+  return { quelle: "lokal", auswertung: auswerten(e) };
+}
+
+const STUFEN_TEXT: Record<Stufe, string> = {
+  dringend: "Dringend",
+  hoch: "Hoch",
+  normal: "Normal",
+  planbar: "Planbar",
+};
+
 export function auswerten(e: Eingaben): Auswertung {
   const a = e.antworten;
   const anliegen = ANLIEGEN.find((x) => x.id === e.anliegen)!;

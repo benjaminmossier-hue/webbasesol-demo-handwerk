@@ -88,7 +88,14 @@ export function AnfrageAssistent() {
   async function absenden(e: React.FormEvent) {
     e.preventDefault();
     if (!anliegen || laedt) return;
-    const eingaben: Eingaben = { anliegen, antworten, vorname, plz, kontaktweg, notiz };
+    const eingaben: Eingaben = {
+      anliegen,
+      antworten,
+      vorname: vorname.trim(),
+      plz,
+      kontaktweg,
+      notiz: notiz.trim(),
+    };
     setLaedt(true);
     const { auswertung, quelle } = await auswertenMitKi(eingaben, website);
     setLaedt(false);
@@ -417,7 +424,10 @@ function Ergebnis({
                   {auswertung.zusammenfassung.map((z) => (
                     <li key={z}>• {z}</li>
                   ))}
-                  <li>• PLZ: {eingaben.plz}</li>
+                  {/* Die KI nennt die PLZ oft schon selbst, dann nicht doppelt anzeigen */}
+                  {!auswertung.zusammenfassung.some((z) => z.includes(eingaben.plz)) && (
+                    <li>• PLZ: {eingaben.plz}</li>
+                  )}
                   <li>
                     • Kontakt: {eingaben.kontaktweg}
                     {eingaben.vorname ? ` (${eingaben.vorname})` : ""}
